@@ -1,0 +1,49 @@
+name: Repository Health
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate required project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in README.md LICENSE CONTRIBUTING.md; do
+            test -s "$file" || { echo "Missing or empty required file: $file"; exit 1; }
+          done
+
+      - name: Validate Markdown structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          for path in [Path("README.md"), Path("CONTRIBUTING.md")]:
+              text = path.read_text(encoding="utf-8")
+              if not re.search(r"^#\s+", text, re.MULTILINE):
+                  raise SystemExit(f"{path} has no top-level Markdown heading")
+              if text.count("```") % 2:
+                  raise SystemExit(f"{path} has unbalanced fenced code blocks")
+          print("Markdown structure looks valid.")
+          PY
+
+      - name: Check for accidentally committed secrets
+        run: |
+          if grep -RInE --exclude-dir=.git --exclude='*.svg' '(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' .; then
+            echo "Potential credential pattern detected. Review the commit."
+            exit 1
+          fi
+          echo "No common credential patterns detected."
